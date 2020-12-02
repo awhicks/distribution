@@ -3,12 +3,14 @@ package proxy
 import (
 	"context"
 	"fmt"
+	"log"
 	"time"
 
 	"github.com/docker/distribution"
 	dcontext "github.com/docker/distribution/context"
 	"github.com/docker/distribution/reference"
 	"github.com/docker/distribution/registry/proxy/scheduler"
+	storagedriver "github.com/docker/distribution/registry/storage/driver"
 	"github.com/opencontainers/go-digest"
 )
 
@@ -16,6 +18,9 @@ import (
 const repositoryTTL = 24 * 7 * time.Hour
 
 type proxyManifestStore struct {
+	localRepo       distribution.Repository
+	driver          storagedriver.StorageDriver
+	blobs           *proxyBlobStore
 	ctx             context.Context
 	localManifests  distribution.ManifestService
 	remoteManifests distribution.ManifestService
@@ -45,6 +50,8 @@ func (pms proxyManifestStore) Exists(ctx context.Context, dgst digest.Digest) (b
 }
 
 func (pms proxyManifestStore) Get(ctx context.Context, dgst digest.Digest, options ...distribution.ManifestServiceOption) (distribution.Manifest, error) {
+	log.Printf("Blob bytes pulled: %d", proxyMetrics.blobMetrics.BytesPulled)
+	log.Printf("Manifest bytes pulled: %d", proxyMetrics.manifestMetrics.BytesPulled)
 	// At this point `dgst` was either specified explicitly, or returned by the
 	// tagstore with the most recent association.
 	var fromRemote bool
@@ -97,7 +104,15 @@ func (pms proxyManifestStore) Put(ctx context.Context, manifest distribution.Man
 }
 
 func (pms proxyManifestStore) Delete(ctx context.Context, dgst digest.Digest) error {
-	return distribution.ErrUnsupported
+	manifests, err := pms.localRepo.Manifests(ctx)
+	if err != nil {
+		return err
+	}
+	err = manifests.Delete(ctx, dgst)
+	if err != nil {
+		return err
+	}
+	return nil
 }
 
 func (pms proxyManifestStore) Enumerate(ctx context.Context, ingester func(digest.Digest) error) error {

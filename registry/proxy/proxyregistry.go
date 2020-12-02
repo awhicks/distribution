@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"net/http"
 	"net/url"
+	"runtime"
 	"sync"
 
 	"github.com/docker/distribution"
@@ -18,6 +19,8 @@ import (
 	"github.com/docker/distribution/registry/proxy/scheduler"
 	"github.com/docker/distribution/registry/storage"
 	"github.com/docker/distribution/registry/storage/driver"
+	"github.com/docker/distribution/registry/storage/driver/factory"
+	"github.com/docker/distribution/version"
 )
 
 // proxyingRegistry fetches content from a remote registry and caches it locally
@@ -155,16 +158,32 @@ func (pr *proxyingRegistry) Repository(ctx context.Context, name reference.Named
 	if err != nil {
 		return nil, err
 	}
+	storageParams := make(configuration.Parameters)
+	storageParams["useragent"] = fmt.Sprintf("docker-distribution/%s %s", version.Version, runtime.Version())
+	driver, err := factory.Create("filesystem", storageParams)
+	manifestLinkPathFns := []linkPathFunc{
+		// NOTE(stevvooe): Need to search through multiple locations since
+		// 2.1.0 unintentionally linked into  _layers.
+		manifestRevisionLinkPath,
+		blobLinkPath,
+	}
+	blobStore := &proxyBlobStore{
+		localRepo:      localRepo,
+		linkPathFns:    manifestLinkPathFns,
+		driver:         driver,
+		localStore:     localRepo.Blobs(ctx),
+		remoteStore:    remoteRepo.Blobs(ctx),
+		scheduler:      pr.scheduler,
+		repositoryName: name,
+		authChallenger: pr.authChallenger,
+	}
 
 	return &proxiedRepository{
-		blobStore: &proxyBlobStore{
-			localStore:     localRepo.Blobs(ctx),
-			remoteStore:    remoteRepo.Blobs(ctx),
-			scheduler:      pr.scheduler,
-			repositoryName: name,
-			authChallenger: pr.authChallenger,
-		},
+		blobStore: blobStore,
 		manifests: &proxyManifestStore{
+			localRepo:       localRepo,
+			driver:          driver,
+			blobs:           blobStore,
 			repositoryName:  name,
 			localManifests:  localManifests, // Options?
 			remoteManifests: remoteManifests,

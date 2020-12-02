@@ -83,12 +83,6 @@ type manifestHandler struct {
 
 // GetManifest fetches the image manifest from the storage backend, if it exists.
 func (imh *manifestHandler) GetManifest(w http.ResponseWriter, r *http.Request) {
-	totalSize, err := GetTotalSizeOfManifests(imh.Context, imh.App.registry)
-	if err != nil {
-		log.Printf("Error attempting to get size of manifests: %s", err)
-	} else {
-		log.Printf("Total size of manifests in registry: %d", totalSize)
-	}
 	dcontext.GetLogger(imh).Debug("GetImageManifest")
 	manifests, err := imh.Repository.Manifests(imh)
 	if err != nil {
@@ -235,6 +229,12 @@ func (imh *manifestHandler) GetManifest(w http.ResponseWriter, r *http.Request) 
 	ct, p, err := manifest.Payload()
 	if err != nil {
 		return
+	}
+	totalSize, err := GetTotalSizeOfManifests(imh.Context, imh.App.registry)
+	if err != nil {
+		log.Printf("Error attempting to get size of manifests: %s", err)
+	} else {
+		log.Printf("Total size of manifests in registry: %d", totalSize)
 	}
 
 	w.Header().Set("Content-Type", ct)
@@ -500,6 +500,14 @@ func (imh *manifestHandler) DeleteManifest(w http.ResponseWriter, r *http.Reques
 	}
 
 	err = manifests.Delete(imh, imh.Digest)
+	// Have to put it here since this method totally hits the
+	// ErrDigestUnsupported thing right after
+	totalSize, err := GetTotalSizeOfManifests(imh.Context, imh.App.registry)
+	if err != nil {
+		log.Printf("Error attempting to get size of manifests: %s", err)
+	} else {
+		log.Printf("Total size of manifests in registry: %d", totalSize)
+	}
 	if err != nil {
 		switch err {
 		case digest.ErrDigestUnsupported:

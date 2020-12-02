@@ -11,10 +11,16 @@ import (
 	dcontext "github.com/docker/distribution/context"
 	"github.com/docker/distribution/reference"
 	"github.com/docker/distribution/registry/proxy/scheduler"
+	"github.com/docker/distribution/registry/storage"
+	"github.com/docker/distribution/registry/storage/driver"
+	storagedriver "github.com/docker/distribution/registry/storage/driver"
 	"github.com/opencontainers/go-digest"
 )
 
 type proxyBlobStore struct {
+	localRepo      distribution.Repository
+	linkPathFns    []linkPathFunc
+	driver         storagedriver.StorageDriver
 	localStore     distribution.BlobStore
 	remoteStore    distribution.BlobService
 	scheduler      *scheduler.TTLExpirationScheduler
@@ -211,6 +217,52 @@ func (pbs *proxyBlobStore) Open(ctx context.Context, dgst digest.Digest) (distri
 	return nil, distribution.ErrUnsupported
 }
 
+func (pbs *proxyBlobStore) Clear(ctx context.Context, dgst digest.Digest) (err error) {
+	// clear any possible existence of a link described in linkPathFns
+	for _, linkPathFn := range pbs.linkPathFns {
+		blobLinkPath, err := linkPathFn(pbs.repositoryName.String(), dgst)
+		if err != nil {
+			return err
+		}
+
+		err = pbs.driver.Delete(ctx, blobLinkPath)
+		if err != nil {
+			switch err := err.(type) {
+			case driver.PathNotFoundError:
+				continue // just ignore this error and continue
+			default:
+				return err
+			}
+		}
+	}
+
+	return nil
+}
+
 func (pbs *proxyBlobStore) Delete(ctx context.Context, dgst digest.Digest) error {
-	return distribution.ErrUnsupported
+	v := storage.NewVacuum(ctx, pbs.driver)
+	blobs := pbs.localRepo.Blobs(ctx)
+	err := blobs.Delete(ctx, dgst)
+	if err != nil {
+		return err
+	}
+	err = v.RemoveBlob(dgst.String())
+	if err != nil {
+		return err
+	}
+	return nil
+}
+
+// linkPathFunc describes a function that can resolve a link based on the
+// repository name and digest.
+type linkPathFunc func(name string, dgst digest.Digest) (string, error)
+
+// blobLinkPath provides the path to the blob link, also known as layers.
+func blobLinkPath(name string, dgst digest.Digest) (string, error) {
+	return pathFor(layerLinkPathSpec{name: name, digest: dgst})
+}
+
+// manifestRevisionLinkPath provides the path to the manifest revision link.
+func manifestRevisionLinkPath(name string, dgst digest.Digest) (string, error) {
+	return pathFor(manifestRevisionLinkPathSpec{name: name, revision: dgst})
 }
