@@ -3,6 +3,7 @@ package storage
 import (
 	"context"
 	"fmt"
+	"log"
 
 	"github.com/docker/distribution"
 	"github.com/docker/distribution/reference"
@@ -33,7 +34,7 @@ func MarkAndSweep(ctx context.Context, storageDriver driver.StorageDriver, regis
 	if !ok {
 		return fmt.Errorf("unable to convert Namespace to RepositoryEnumerator")
 	}
-
+	log.Println("Does it work now?")
 	// mark
 	markSet := make(map[digest.Digest]struct{})
 	manifestArr := make([]ManifestDel, 0)

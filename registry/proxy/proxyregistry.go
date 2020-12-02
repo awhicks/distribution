@@ -3,6 +3,7 @@ package proxy
 import (
 	"context"
 	"fmt"
+	"io"
 	"net/http"
 	"net/url"
 	"runtime"
@@ -119,6 +120,22 @@ func (pr *proxyingRegistry) Scope() distribution.Scope {
 
 func (pr *proxyingRegistry) Repositories(ctx context.Context, repos []string, last string) (n int, err error) {
 	return pr.embedded.Repositories(ctx, repos, last)
+}
+
+func (pr *proxyingRegistry) Enumerate(ctx context.Context, ingester func(string) error) error {
+	repos := make([]string, 100)
+	filled, err := pr.Repositories(ctx, repos, "")
+	if err != nil && err != io.EOF {
+		return fmt.Errorf("Error retrieving repositories: %w", err)
+	}
+
+	for i := 0; i < filled; i++ {
+		err = ingester(repos[i])
+		if err != nil {
+			return err
+		}
+	}
+	return nil
 }
 
 func (pr *proxyingRegistry) Repository(ctx context.Context, name reference.Named) (distribution.Repository, error) {

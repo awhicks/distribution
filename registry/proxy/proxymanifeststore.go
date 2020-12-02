@@ -121,13 +121,5 @@ func (pms proxyManifestStore) Enumerate(ctx context.Context, ingester func(diges
 	if !ok {
 		return fmt.Errorf("unable to convert localManifests ManifestService into ManifestEnumerator")
 	}
-	err := manifestEnumerator.Enumerate(ctx, ingester)
-	if err != nil {
-		return err
-	}
-	manifestEnumerator, ok = pms.remoteManifests.(distribution.ManifestEnumerator)
-	if !ok {
-		return fmt.Errorf("unable to convert remoteManifests ManifestService into ManifestEnumerator")
-	}
 	return manifestEnumerator.Enumerate(ctx, ingester)
 }

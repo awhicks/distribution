@@ -19,6 +19,7 @@ import (
 	"github.com/docker/distribution/registry/api/errcode"
 	v2 "github.com/docker/distribution/registry/api/v2"
 	"github.com/docker/distribution/registry/auth"
+	"github.com/docker/distribution/registry/storage"
 	"github.com/gorilla/handlers"
 	"github.com/opencontainers/go-digest"
 	v1 "github.com/opencontainers/image-spec/specs-go/v1"
@@ -500,6 +501,7 @@ func (imh *manifestHandler) DeleteManifest(w http.ResponseWriter, r *http.Reques
 	}
 
 	err = manifests.Delete(imh, imh.Digest)
+	storage.MarkAndSweep(imh.Context, imh.App.driver, imh.App.registry, storage.GCOpts{RemoveUntagged: false, DryRun: false})
 	// Have to put it here since this method totally hits the
 	// ErrDigestUnsupported thing right after
 	totalSize, err := GetTotalSizeOfManifests(imh.Context, imh.App.registry)
