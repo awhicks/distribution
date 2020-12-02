@@ -2,6 +2,7 @@ package proxy
 
 import (
 	"context"
+	"fmt"
 	"time"
 
 	"github.com/docker/distribution"
@@ -24,6 +25,10 @@ type proxyManifestStore struct {
 }
 
 var _ distribution.ManifestService = &proxyManifestStore{}
+
+func (pms proxyManifestStore) LocalManifests(ctx context.Context, dgst digest.Digest) distribution.ManifestService {
+	return pms.localManifests
+}
 
 func (pms proxyManifestStore) Exists(ctx context.Context, dgst digest.Digest) (bool, error) {
 	exists, err := pms.localManifests.Exists(ctx, dgst)
@@ -93,4 +98,21 @@ func (pms proxyManifestStore) Put(ctx context.Context, manifest distribution.Man
 
 func (pms proxyManifestStore) Delete(ctx context.Context, dgst digest.Digest) error {
 	return distribution.ErrUnsupported
+}
+
+func (pms proxyManifestStore) Enumerate(ctx context.Context, ingester func(digest.Digest) error) error {
+	// This will enumerate over the local manifests
+	manifestEnumerator, ok := pms.localManifests.(distribution.ManifestEnumerator)
+	if !ok {
+		return fmt.Errorf("unable to convert localManifests ManifestService into ManifestEnumerator")
+	}
+	err := manifestEnumerator.Enumerate(ctx, ingester)
+	if err != nil {
+		return err
+	}
+	manifestEnumerator, ok = pms.remoteManifests.(distribution.ManifestEnumerator)
+	if !ok {
+		return fmt.Errorf("unable to convert remoteManifests ManifestService into ManifestEnumerator")
+	}
+	return manifestEnumerator.Enumerate(ctx, ingester)
 }

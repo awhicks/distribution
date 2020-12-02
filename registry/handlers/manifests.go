@@ -3,6 +3,8 @@ package handlers
 import (
 	"bytes"
 	"fmt"
+	"io"
+	"log"
 	"mime"
 	"net/http"
 	"strings"
@@ -81,6 +83,12 @@ type manifestHandler struct {
 
 // GetManifest fetches the image manifest from the storage backend, if it exists.
 func (imh *manifestHandler) GetManifest(w http.ResponseWriter, r *http.Request) {
+	totalSize, err := GetTotalSizeOfManifests(imh.Context, imh.App.registry)
+	if err != nil {
+		log.Printf("Error attempting to get size of manifests: %s", err)
+	} else {
+		log.Printf("Total size of manifests in registry: %d", totalSize)
+	}
 	dcontext.GetLogger(imh).Debug("GetImageManifest")
 	manifests, err := imh.Repository.Manifests(imh)
 	if err != nil {
@@ -525,4 +533,51 @@ func (imh *manifestHandler) DeleteManifest(w http.ResponseWriter, r *http.Reques
 	}
 
 	w.WriteHeader(http.StatusAccepted)
+}
+
+func GetTotalSizeOfManifests(ctx *Context, registry distribution.Namespace) (int64, error) {
+	// Maximum returned registries = 100
+	repos := make([]string, 100)
+	filled, err := registry.Repositories(ctx, repos, "")
+	if err != nil && err != io.EOF {
+		return 0, fmt.Errorf("Error retrieving repositories: %w", err)
+	}
+	var totalSize int64
+	totalSize = 0
+	for i := 0; i < filled; i++ {
+		repoName, err := reference.WithName(repos[i])
+		if err != nil {
+			log.Println("Could not get repoName")
+			continue
+		}
+		repo, err := registry.Repository(ctx, repoName)
+		if err != nil {
+			log.Printf("Error getting repo: %s", err)
+			continue
+		}
+		manifestService, err := repo.Manifests(ctx, nil)
+		if err != nil {
+			log.Printf("Errpr getting manifestService : %s", err)
+			continue
+		}
+		manifestEnumerator, ok := manifestService.(distribution.ManifestEnumerator)
+		if !ok {
+			log.Printf("unable to convert ManifestService into ManifestEnumerator")
+			continue
+		} else {
+			err = manifestEnumerator.Enumerate(ctx, func(dgst digest.Digest) error {
+				manifest, err := manifestService.Get(ctx, dgst)
+				if err != nil {
+					return fmt.Errorf("failed to retrieve manifest for digest %v: %v", dgst, err)
+				}
+				refs := manifest.References()
+				for _, ref := range refs {
+					log.Printf("%d, %s, %s, %s", ref.Size, ref.MediaType, ref.Digest, ref.URLs)
+					totalSize += ref.Size
+				}
+				return nil
+			})
+		}
+	}
+	return totalSize, nil
 }
