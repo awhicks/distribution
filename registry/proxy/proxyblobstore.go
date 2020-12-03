@@ -169,7 +169,7 @@ func (pbs *proxyBlobStore) ServeBlob(ctx context.Context, w http.ResponseWriter,
 	// Check if size with new blob exceeds our storageCap, and if the new blob should fit in the cache.
 	// If it does, evict things until sizeExceeding is free.
 	if sizeExceeding := bytesDownloading + blobDiskUsage - storageCap; desc.Size < storageCap && sizeExceeding > 0 {
-		pbs.EvictLRU(ctx, dgst, sizeExceeding)
+		pbs.EvictFromCache(ctx, dgst, sizeExceeding, "LRU")
 	}
 
 	served, err := pbs.serveLocal(ctx, w, r, dgst)
@@ -320,7 +320,7 @@ func (pbs *proxyBlobStore) Delete(ctx context.Context, dgst digest.Digest) error
 	return nil
 }
 
-func (pbs *proxyBlobStore) EvictLRU(ctx context.Context, dgst digest.Digest, spaceNeeded int64) error {
+func (pbs *proxyBlobStore) EvictFromCache(ctx context.Context, dgst digest.Digest, spaceNeeded int64, evictionMethod string) error {
 	log.Println("Evicting cache")
 	blobEnumerator, ok := pbs.localStore.(distribution.BlobEnumerator)
 	if !ok {
@@ -347,9 +347,18 @@ func (pbs *proxyBlobStore) EvictLRU(ctx context.Context, dgst digest.Digest, spa
 		})
 		return nil
 	})
-	sort.SliceStable(blobSlice, func(i, j int) bool {
-		return blobSlice[i].lastUsage.Before(blobSlice[j].lastUsage)
-	})
+	switch evictionMethod {
+	case "LFU":
+		sort.SliceStable(blobSlice, func(i, j int) bool {
+			return blobSlice[i].usages < blobSlice[j].usages
+		})
+	case "LRU":
+	default:
+		sort.SliceStable(blobSlice, func(i, j int) bool {
+			return blobSlice[i].lastUsage.Before(blobSlice[j].lastUsage)
+		})
+	}
+
 	for _, blob := range blobSlice {
 		desc, err := pbs.Stat(ctx, blob.digest)
 		if err != nil {
