@@ -582,7 +582,6 @@ func GetTotalSizeOfManifests(ctx *Context, registry distribution.Namespace) (int
 				}
 				refs := manifest.References()
 				for _, ref := range refs {
-					log.Printf("%d, %s, %s, %s", ref.Size, ref.MediaType, ref.Digest, ref.URLs)
 					totalSize += ref.Size
 				}
 				return nil

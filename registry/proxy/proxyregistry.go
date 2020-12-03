@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 	"io"
+	"log"
 	"net/http"
 	"net/url"
 	"runtime"
@@ -178,29 +179,29 @@ func (pr *proxyingRegistry) Repository(ctx context.Context, name reference.Named
 	storageParams := make(configuration.Parameters)
 	storageParams["useragent"] = fmt.Sprintf("docker-distribution/%s %s", version.Version, runtime.Version())
 	driver, err := factory.Create("filesystem", storageParams)
+	if err != nil {
+		log.Printf("Error creating storage driver: %s", err)
+	}
 	manifestLinkPathFns := []linkPathFunc{
 		// NOTE(stevvooe): Need to search through multiple locations since
 		// 2.1.0 unintentionally linked into  _layers.
 		manifestRevisionLinkPath,
 		blobLinkPath,
 	}
-	blobStore := &proxyBlobStore{
-		localRepo:      localRepo,
-		linkPathFns:    manifestLinkPathFns,
-		driver:         driver,
-		localStore:     localRepo.Blobs(ctx),
-		remoteStore:    remoteRepo.Blobs(ctx),
-		scheduler:      pr.scheduler,
-		repositoryName: name,
-		authChallenger: pr.authChallenger,
-	}
-
 	return &proxiedRepository{
-		blobStore: blobStore,
+		blobStore: &proxyBlobStore{
+			localRepo:      localRepo,
+			linkPathFns:    manifestLinkPathFns,
+			driver:         driver,
+			localStore:     localRepo.Blobs(ctx),
+			remoteStore:    remoteRepo.Blobs(ctx),
+			scheduler:      pr.scheduler,
+			repositoryName: name,
+			authChallenger: pr.authChallenger,
+		},
 		manifests: &proxyManifestStore{
 			localRepo:       localRepo,
 			driver:          driver,
-			blobs:           blobStore,
 			repositoryName:  name,
 			localManifests:  localManifests, // Options?
 			remoteManifests: remoteManifests,
